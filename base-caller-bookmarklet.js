@@ -1,6 +1,6 @@
 javascript:(function(){
-  const passUrl = 'https://example.com'; // Replace with your site
-  const scriptUrl = 'https://yourdomain.com/gpu-glitch.js'; // Must be CORS-accessible or same origin
+  const passUrl = 'https://example.com'; // your passthrough page
+  const scriptUrl = 'https://raw.githubusercontent.com/WAP246/bookmarklets/main/pranks/gpu-glitch.js';
 
   const w = window.open(passUrl, '_blank');
 

@@ -23,7 +23,8 @@ Object.assign(glitch.style, {
     width: '100%',
     height: '100%',
     pointerEvents: 'none',
-    zIndex: 99999998
+    zIndex: 99999998,
+    overflow: 'hidden'
 });
 document.body.appendChild(glitch);
 
@@ -42,13 +43,14 @@ function glitchFrame() {
                 position: 'absolute',
                 left: '0',
                 width: '100%',
-                height: (5 + Math.random() * 80) + 'px',
-                top: Math.random() * window.innerHeight + 'px',
+                height: `${5 + Math.random() * 80}px`,
+                top: `${Math.random() * window.innerHeight}px`,
                 background: `rgba(${Math.floor(Math.random()*255)},${Math.floor(Math.random()*255)},${Math.floor(Math.random()*255)},${0.1 + Math.random() * 0.9})`,
-                transform: `translateX(${(Math.random() - 0.5) * 200}px)`
+                transform: `translateX(${(Math.random() - 0.5) * 200}px)`,
+                willChange: 'transform, opacity'
             });
-            bars.push(bar);
             glitch.appendChild(bar);
+            bars.push(bar);
         }
 
         setTimeout(() => bars.forEach(b => b.remove()), 100 + intensity * 500);

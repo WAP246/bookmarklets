@@ -1,10 +1,9 @@
 javascript:(function(){
-  const passUrl = 'https://example.com';      // ← Replace with your passthrough website
-  const scriptUrl = 'https://yourdomain.com/your-script.js';  // ← Replace with your JS file URL
+  const passUrl = 'https://example.com'; // Replace with your site
+  const scriptUrl = 'https://yourdomain.com/gpu-glitch.js'; // Must be CORS-accessible or same origin
 
   const w = window.open(passUrl, '_blank');
 
-  // Poll until new window is loaded, then inject
   const interval = setInterval(() => {
     try {
       if (w.document && w.document.readyState === 'complete') {
@@ -15,7 +14,6 @@ javascript:(function(){
         w.document.body.appendChild(s);
       }
     } catch (e) {
-      // Cross-origin? Might not be able to access w.document
       console.warn('Could not inject script:', e);
       clearInterval(interval);
     }

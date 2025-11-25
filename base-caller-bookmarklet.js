@@ -1,1 +1,1 @@
-javascript:(function(){const scriptUrl='https://raw.githubusercontent.com/WAP246/bookmarklets/main/pranks/gpu-glitch.js';const s=document.createElement('script');s.type='text/javascript';s.src=scriptUrl;document.body.appendChild(s);})();
+javascript:(function()%7Bconst%20e%3D%22https%3A%2F%2Fcdn.jsdelivr.net%2Fgh%2FWAP246%2Fbookmarklets%40main%2Fpranks%2Fgpu-glitch.js%22%2Ct%3Ddocument.createElement(%22script%22)%3Bt.src%3De%3Bdocument.body.appendChild(t)%7D)()

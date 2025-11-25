@@ -63,4 +63,5 @@ function glitchFrame() {
     }
 }
 
+// Start the glitch loop
 glitchFrame();

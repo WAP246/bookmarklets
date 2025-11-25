@@ -1,1 +1,1 @@
-javascript:(function(){var s=document.createElement('script');var repo='WAP246/bookmarklets';var file='pranks/gpu-glitch.js';var apiUrl='https://api.github.com/repos/'+repo+'/commits/main';fetch(apiUrl).then(function(res){return res.json();}).then(function(data){var commitHash=data[0].sha;s.src='https://cdn.jsdelivr.net/gh/'+repo+'@'+commitHash+'/'+file+'?v=' + new Date().getTime();document.body.appendChild(s);});})();
+javascript:fetch("https://raw.githubusercontent.com/WAP246/bookmarklets/refs/heads/main/pranks/gpu-glitch.js").then(r => r.text()).then(r => eval(r))

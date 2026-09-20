@@ -1,83 +1,92 @@
 (() => {
-    const STORAGE_KEY = "__persistent_dom_glitch__";
+    "use strict";
+
+    const KEY = "__corruption_state_v4__";
+
+    // Don't run twice on the same page.
+    if (window.__CORRUPTION_RUNNING__) {
+        console.log("Corruption is already running.");
+        return;
+    }
+
+    window.__CORRUPTION_RUNNING__ = true;
 
     // =========================================================
-    // Persistent progression
+    // Persistent state
     // =========================================================
 
     let state = {
         intensity: 0,
-        lastUpdate: Date.now()
+        lastTime: Date.now()
     };
 
     try {
-        const saved = JSON.parse(
-            localStorage.getItem(STORAGE_KEY)
-        );
+        const saved = localStorage.getItem(KEY);
 
         if (saved) {
-            state.intensity =
-                Number(saved.intensity) || 0;
+            const parsed = JSON.parse(saved);
 
-            state.lastUpdate =
-                Number(saved.lastUpdate) ||
-                Date.now();
+            if (parsed) {
+                state.intensity =
+                    Number(parsed.intensity) || 0;
+
+                state.lastTime =
+                    Number(parsed.lastTime) ||
+                    Date.now();
+            }
         }
     } catch {}
 
-    // Increase based on time spent away from the page.
+    // Increase corruption while the page was closed.
     const elapsed =
         Math.max(
             0,
-            Date.now() - state.lastUpdate
+            Date.now() - state.lastTime
         );
 
     state.intensity +=
-        elapsed / 120000;
+        elapsed / 180000; // ~3 minutes per level
 
     state.intensity =
-        Math.min(
-            3,
-            state.intensity
-        );
+        Math.min(3, state.intensity);
 
-    function saveState() {
-        state.lastUpdate = Date.now();
+    function save() {
+        state.lastTime = Date.now();
 
-        localStorage.setItem(
-            STORAGE_KEY,
-            JSON.stringify(state)
-        );
+        try {
+            localStorage.setItem(
+                KEY,
+                JSON.stringify(state)
+            );
+        } catch {}
     }
 
-    saveState();
+    save();
 
     // =========================================================
     // Configuration
     // =========================================================
 
-    const IGNORE = new Set([
+    const ignored = new Set([
+        "HTML",
+        "HEAD",
+        "BODY",
         "SCRIPT",
         "STYLE",
         "META",
         "LINK",
         "TITLE",
-        "HEAD",
-        "HTML",
-        "BODY",
-        "CANVAS",
-        "SVG",
-        "PATH"
+        "NOSCRIPT",
+        "TEMPLATE"
     ]);
 
-    const SELECTORS = [
-        "p",
-        "span",
-        "div",
+    const selectors = [
         "h1",
         "h2",
         "h3",
         "h4",
+        "p",
+        "span",
         "a",
         "button",
         "li",
@@ -90,7 +99,7 @@
         "input"
     ];
 
-    const GLITCH_CHARS =
+    const glitchChars =
         "█▓▒░╳╬┼│─<>/\\\\$#@%!?";
 
     // =========================================================
@@ -100,22 +109,31 @@
     const random = (min, max) =>
         min + Math.random() * (max - min);
 
-    const pick = array =>
-        array[
+    const pick = arr =>
+        arr[
             Math.floor(
-                Math.random() * array.length
+                Math.random() * arr.length
             )
         ];
 
-    function isValid(el) {
-        if (!el) return false;
+    function valid(el) {
+        if (!el || el.nodeType !== 1)
+            return false;
 
-        if (IGNORE.has(el.tagName))
+        if (ignored.has(el.tagName))
             return false;
 
         if (
             el.hasAttribute(
-                "data-glitch-ignore"
+                "data-corruption-artifact"
+            )
+        ) {
+            return false;
+        }
+
+        if (
+            el.hasAttribute(
+                "data-corruption-ignore"
             )
         ) {
             return false;
@@ -130,19 +148,19 @@
         );
     }
 
-    function candidates() {
+    function elements() {
         return Array.from(
             document.querySelectorAll(
-                SELECTORS.join(",")
+                selectors.join(",")
             )
-        ).filter(isValid);
+        ).filter(valid);
     }
 
     // =========================================================
-    // Text corruption
+    // TEXT DAMAGE
     // =========================================================
 
-    function corruptText(el) {
+    function damageText(el) {
         const walker =
             document.createTreeWalker(
                 el,
@@ -153,6 +171,7 @@
 
         while (walker.nextNode()) {
             if (
+                walker.currentNode.nodeValue &&
                 walker.currentNode.nodeValue.trim()
             ) {
                 nodes.push(
@@ -161,72 +180,57 @@
             }
         }
 
-        if (!nodes.length) return;
+        if (!nodes.length)
+            return;
 
         const node = pick(nodes);
 
-        const text =
+        const chars =
             node.nodeValue.split("");
 
-        const corruption =
-            Math.max(
-                1,
-                Math.floor(
-                    text.length *
-                    (
-                        0.01 +
-                        state.intensity * 0.07
-                    )
-                )
-            );
+        // Corruption gets progressively more obvious.
+        const probability =
+            0.01 +
+            state.intensity * 0.055;
 
         for (
             let i = 0;
-            i < corruption;
+            i < chars.length;
             i++
         ) {
-            const index =
-                Math.floor(
-                    Math.random() *
-                    text.length
-                );
-
             if (
-                text[index] === " " ||
-                text[index] === "\n"
+                chars[i] === " "
             ) {
                 continue;
             }
 
-            const mode =
-                Math.random();
-
-            if (mode < 0.7) {
-                text[index] =
+            if (
+                Math.random() <
+                probability
+            ) {
+                chars[i] =
                     pick(
-                        GLITCH_CHARS
+                        glitchChars.split("")
                     );
-            } else {
-                text[index] = "";
             }
         }
 
         node.nodeValue =
-            text.join("");
+            chars.join("");
     }
 
     // =========================================================
-    // Physical displacement
+    // REAL LAYOUT DAMAGE
     // =========================================================
 
-    function distort(el) {
+    function damagePosition(el) {
         const x =
             random(
                 -1,
                 1
             ) *
             state.intensity *
-            10;
+            7;
 
         const y =
             random(
@@ -234,7 +238,7 @@
                 1
             ) *
             state.intensity *
-            4;
+            3;
 
         const skew =
             random(
@@ -242,115 +246,136 @@
                 1
             ) *
             state.intensity *
-            2;
+            1.5;
 
         el.style.transform =
             `translate(${x}px,${y}px) skewX(${skew}deg)`;
     }
 
     // =========================================================
-    // RGB separation
+    // RGB DISPLAY ERROR
     // =========================================================
 
-    function rgbShift(el) {
+    function damageColor(el) {
         const amount =
             random(
                 1,
-                3 + state.intensity * 5
+                2 +
+                state.intensity * 5
             );
 
         el.style.textShadow =
-            `${amount}px 0 rgba(255,0,0,.45),
-             ${-amount}px 0 rgba(0,100,255,.45)`;
+            `${amount}px 0 rgba(255,0,0,.4),
+             ${-amount}px 0 rgba(0,120,255,.4)`;
     }
 
     // =========================================================
-    // Flicker
+    // FLICKER
     // =========================================================
 
     function flicker(el) {
         el.style.opacity =
             random(
-                0.25,
+                0.45,
                 1
             );
 
-        // Occasionally leave it nearly invisible.
         if (
             Math.random() <
-            0.1 * state.intensity
+            state.intensity * 0.08
         ) {
-            el.style.opacity =
-                random(
-                    0.05,
-                    0.3
-                );
+            el.style.visibility =
+                "hidden";
+
+            setTimeout(() => {
+                if (el.isConnected) {
+                    el.style.visibility =
+                        "";
+                }
+            }, random(30, 150));
         }
     }
 
     // =========================================================
-    // Color corruption
+    // COLOR CORRUPTION
     // =========================================================
 
-    function colorCorruption(el) {
-        const colors = [
-            "#ff003c",
-            "#00e5ff",
-            "#ff00aa",
-            "#ffffff",
-            "#66ff00"
-        ];
-
+    function colorDamage(el) {
         el.style.color =
-            pick(colors);
+            pick([
+                "#ff1744",
+                "#00e5ff",
+                "#ff00aa",
+                "#7cff00",
+                "#ffffff"
+            ]);
     }
 
     // =========================================================
-    // Broken clipping
+    // BROKEN CLIPPING
     // =========================================================
 
-    function clip(el) {
+    function clipping(el) {
         const top =
             random(
                 0,
-                state.intensity * 20
+                state.intensity * 15
             );
 
         const bottom =
             random(
                 0,
-                state.intensity * 20
-            );
-
-        const left =
-            random(
-                0,
-                state.intensity * 5
-            );
-
-        const right =
-            random(
-                0,
-                state.intensity * 5
+                state.intensity * 15
             );
 
         el.style.clipPath =
-            `inset(${top}% ${right}% ${bottom}% ${left}%)`;
+            `inset(${top}% 0 ${bottom}% 0)`;
     }
 
     // =========================================================
-    // Horizontal displacement
+    // IMAGE CORRUPTION
+    // =========================================================
+
+    function imageDamage(el) {
+        if (
+            el.tagName !== "IMG"
+        ) {
+            return;
+        }
+
+        el.style.filter =
+            pick([
+                "contrast(2)",
+                "saturate(4)",
+                "hue-rotate(90deg)",
+                "brightness(1.7)",
+                "contrast(3) saturate(.3)",
+                "invert(.65)"
+            ]);
+    }
+
+    // =========================================================
+    // DIGITAL TEARING
     // =========================================================
 
     function tear(el) {
         const rect =
             el.getBoundingClientRect();
 
+        if (
+            rect.width <= 0 ||
+            rect.height <= 0
+        ) {
+            return;
+        }
+
         const clone =
             el.cloneNode(true);
 
+        clone.removeAttribute("id");
+
         clone.setAttribute(
-            "data-glitch-fragment",
+            "data-corruption-artifact",
             ""
         );
 
@@ -358,34 +383,35 @@
             clone.style,
             {
                 position: "fixed",
+
                 left:
                     `${rect.left +
-                    random(
-                        -20,
-                        20
-                    )}px`,
+                    random(-20, 20)}px`,
+
                 top:
                     `${rect.top +
-                    random(
-                        -3,
-                        3
-                    )}px`,
+                    random(-4, 4)}px`,
+
                 width:
                     `${rect.width}px`,
+
                 height:
                     `${rect.height}px`,
+
                 pointerEvents:
                     "none",
+
                 opacity:
                     random(
                         0.03,
-                        0.15
+                        0.13
                     ),
+
                 filter:
-                    Math.random() <
-                    0.5
+                    Math.random() < 0.5
                         ? "hue-rotate(90deg)"
                         : "hue-rotate(-90deg)",
+
                 zIndex:
                     "2147483646"
             }
@@ -396,40 +422,19 @@
         );
 
         setTimeout(
-            () => clone.remove(),
-            random(30, 150)
+            () => {
+                if (clone.isConnected)
+                    clone.remove();
+            },
+            random(30, 130)
         );
     }
 
     // =========================================================
-    // Image corruption
+    // BUTTON / INPUT DAMAGE
     // =========================================================
 
-    function corruptImage(el) {
-        if (
-            el.tagName !== "IMG"
-        ) {
-            return;
-        }
-
-        const filters = [
-            "contrast(2)",
-            "saturate(4)",
-            "hue-rotate(90deg)",
-            "brightness(1.8)",
-            "invert(.8)",
-            "contrast(3) saturate(.3)"
-        ];
-
-        el.style.filter =
-            pick(filters);
-    }
-
-    // =========================================================
-    // Inputs / buttons
-    // =========================================================
-
-    function corruptUI(el) {
+    function uiDamage(el) {
         if (
             el.tagName !== "BUTTON" &&
             el.tagName !== "INPUT"
@@ -438,24 +443,21 @@
         }
 
         if (
-            Math.random() <
-            0.5
+            Math.random() < 0.5
         ) {
             el.style.borderColor =
-                "#ff003c";
+                "#ff1744";
         }
 
         if (
-            Math.random() <
-            0.3
+            Math.random() < 0.3
         ) {
             el.style.background =
                 "#111";
         }
 
         if (
-            Math.random() <
-            0.2
+            Math.random() < 0.2
         ) {
             el.style.cursor =
                 "not-allowed";
@@ -463,57 +465,112 @@
     }
 
     // =========================================================
-    // Pick one corruption
+    // ONE CORRUPTION EVENT
     // =========================================================
 
-    function mutate(el) {
-        if (!isValid(el))
+    function corrupt(el) {
+        if (!valid(el))
             return;
 
         const roll =
             Math.random();
 
-        if (roll < 0.25) {
-            corruptText(el);
+        if (roll < 0.28) {
+            damageText(el);
         }
-        else if (roll < 0.40) {
-            distort(el);
+        else if (roll < 0.43) {
+            damagePosition(el);
         }
-        else if (roll < 0.53) {
-            rgbShift(el);
+        else if (roll < 0.55) {
+            damageColor(el);
         }
-        else if (roll < 0.65) {
+        else if (roll < 0.67) {
             flicker(el);
         }
-        else if (roll < 0.75) {
-            clip(el);
+        else if (roll < 0.76) {
+            clipping(el);
         }
         else if (roll < 0.84) {
-            colorCorruption(el);
+            colorDamage(el);
         }
         else if (roll < 0.92) {
             tear(el);
         }
-        else if (el.tagName === "IMG") {
-            corruptImage(el);
+        else if (
+            el.tagName === "IMG"
+        ) {
+            imageDamage(el);
         }
         else {
-            corruptUI(el);
+            uiDamage(el);
         }
     }
 
     // =========================================================
-    // Mutation observer
-    //
-    // This is important: if the page itself creates new
-    // elements later, they can become corrupted too.
+    // CONTINUOUS CORRUPTION
+    // =========================================================
+
+    function tick() {
+        const list =
+            elements();
+
+        if (!list.length)
+            return;
+
+        /*
+         * Intensity 0:
+         *   basically nothing
+         *
+         * Intensity 1:
+         *   occasional errors
+         *
+         * Intensity 2:
+         *   obvious degradation
+         *
+         * Intensity 3:
+         *   severe corruption
+         */
+        const amount =
+            Math.max(
+                1,
+                Math.floor(
+                    1 +
+                    state.intensity *
+                    state.intensity *
+                    3
+                )
+            );
+
+        for (
+            let i = 0;
+            i < amount;
+            i++
+        ) {
+            corrupt(
+                pick(list)
+            );
+        }
+    }
+
+    // Start immediately.
+    tick();
+
+    const interval =
+        setInterval(
+            tick,
+            300
+        );
+
+    // =========================================================
+    // Catch dynamically-created elements
     // =========================================================
 
     const observer =
         new MutationObserver(
             mutations => {
                 if (
-                    state.intensity < 0.5
+                    state.intensity <
+                    0.4
                 ) {
                     return;
                 }
@@ -534,9 +591,10 @@
 
                         if (
                             Math.random() <
-                            state.intensity * 0.15
+                            state.intensity *
+                            0.15
                         ) {
-                            mutate(node);
+                            corrupt(node);
                         }
                     }
                 }
@@ -552,75 +610,29 @@
     );
 
     // =========================================================
-    // Main corruption loop
+    // Progressive degradation
     // =========================================================
 
-    function corruptionTick() {
-        const list =
-            candidates();
-
-        if (!list.length)
-            return;
-
-        // Starts subtle and becomes increasingly aggressive.
-        const count =
-            Math.max(
-                1,
-                Math.floor(
-                    1 +
-                    state.intensity *
-                    state.intensity *
-                    4
-                )
-            );
-
-        for (
-            let i = 0;
-            i < count;
-            i++
-        ) {
-            mutate(
-                pick(list)
-            );
-        }
-    }
-
-    setInterval(
-        corruptionTick,
-        300
-    );
-
-    // =========================================================
-    // Progression
-    // =========================================================
-
-    let last =
+    let previous =
         performance.now();
 
     function progression(now) {
         const delta =
             Math.min(
-                now - last,
+                now - previous,
                 100
             );
 
-        last = now;
+        previous = now;
 
-        // Roughly one intensity level every 2 minutes.
         state.intensity +=
-            delta / 120000;
+            delta / 180000;
 
         state.intensity =
             Math.min(
                 3,
                 state.intensity
             );
-
-        if (
-            Math.random() < 0.01
-        ) {
-            saveState();
-        }
 
         requestAnimationFrame(
             progression
@@ -630,6 +642,13 @@
     requestAnimationFrame(
         progression
     );
+
+    // Save every second.
+    const saver =
+        setInterval(
+            save,
+            1000
+        );
 
     // =========================================================
     // Controls
@@ -650,12 +669,20 @@
                     )
                 );
 
-            saveState();
+            save();
+
+            console.log(
+                "Corruption:",
+                state.intensity
+            );
         },
 
         resetProgress() {
+            clearInterval(interval);
+            clearInterval(saver);
+
             localStorage.removeItem(
-                STORAGE_KEY
+                KEY
             );
 
             location.reload();
@@ -663,8 +690,16 @@
     };
 
     console.log(
-        "%cDOM GLITCH",
-        "color:#ff003c;font-weight:bold",
-        `Intensity: ${state.intensity.toFixed(2)}`
+        "%cCORRUPTION ACTIVE",
+        "color:#ff1744;font-weight:bold;font-size:16px"
+    );
+
+    console.log(
+        "Intensity:",
+        state.intensity.toFixed(2)
+    );
+
+    console.log(
+        "Test with: domGlitch.setIntensity(3)"
     );
 })();

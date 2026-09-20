@@ -1,71 +1,62 @@
 (() => {
     "use strict";
 
-    const KEY = "__corruption_state_v4__";
+    const KEY = "__persistent_dom_glitch_v2__";
 
-    // Don't run twice on the same page.
-    if (window.__CORRUPTION_RUNNING__) {
-        console.log("Corruption is already running.");
+    if (window.__DOM_GLITCH_RUNNING__) {
+        console.log("Glitch is already running.");
         return;
     }
 
-    window.__CORRUPTION_RUNNING__ = true;
+    window.__DOM_GLITCH_RUNNING__ = true;
 
-    // =========================================================
-    // Persistent state
-    // =========================================================
+    // ------------------------------------------------------------
+    // State
+    // ------------------------------------------------------------
 
-    let state = {
-        intensity: 0,
-        lastTime: Date.now()
-    };
+    const pageKey =
+        location.origin + location.pathname;
+
+    let db;
 
     try {
-        const saved = localStorage.getItem(KEY);
-
-        if (saved) {
-            const parsed = JSON.parse(saved);
-
-            if (parsed) {
-                state.intensity =
-                    Number(parsed.intensity) || 0;
-
-                state.lastTime =
-                    Number(parsed.lastTime) ||
-                    Date.now();
-            }
-        }
-    } catch {}
-
-    // Increase corruption while the page was closed.
-    const elapsed =
-        Math.max(
-            0,
-            Date.now() - state.lastTime
+        db = JSON.parse(
+            localStorage.getItem(KEY) || "{}"
         );
+    } catch {
+        db = {};
+    }
 
-    state.intensity +=
-        elapsed / 180000; // ~3 minutes per level
+    if (!db[pageKey]) {
+        db[pageKey] = {
+            intensity: 0,
+            mutations: {}
+        };
+    }
 
-    state.intensity =
-        Math.min(3, state.intensity);
+    const state = db[pageKey];
+
+    // ------------------------------------------------------------
+    // Persistence
+    // ------------------------------------------------------------
 
     function save() {
-        state.lastTime = Date.now();
-
         try {
             localStorage.setItem(
                 KEY,
-                JSON.stringify(state)
+                JSON.stringify(db)
             );
-        } catch {}
+        } catch (e) {
+            console.warn(
+                "Could not save glitch state:",
+                e
+            );
+        }
     }
 
-    save();
-
-    // =========================================================
-    // Configuration
-    // =========================================================
+    // ------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------
 
     const ignored = new Set([
         "HTML",
@@ -85,6 +76,8 @@
         "h2",
         "h3",
         "h4",
+        "h5",
+        "h6",
         "p",
         "span",
         "a",
@@ -93,28 +86,29 @@
         "label",
         "strong",
         "em",
+        "small",
         "td",
         "th",
         "img",
-        "input"
+        "input",
+        "textarea"
     ];
 
     const glitchChars =
         "█▓▒░╳╬┼│─<>/\\\\$#@%!?";
 
-    // =========================================================
-    // Helpers
-    // =========================================================
+    function random(min, max) {
+        return min +
+            Math.random() * (max - min);
+    }
 
-    const random = (min, max) =>
-        min + Math.random() * (max - min);
-
-    const pick = arr =>
-        arr[
+    function pick(array) {
+        return array[
             Math.floor(
-                Math.random() * arr.length
+                Math.random() * array.length
             )
         ];
+    }
 
     function valid(el) {
         if (!el || el.nodeType !== 1)
@@ -125,30 +119,28 @@
 
         if (
             el.hasAttribute(
-                "data-corruption-artifact"
+                "data-glitch-artifact"
             )
-        ) {
+        )
             return false;
-        }
 
         if (
             el.hasAttribute(
-                "data-corruption-ignore"
+                "data-glitch-ignore"
             )
-        ) {
+        )
             return false;
-        }
 
-        const rect =
+        const r =
             el.getBoundingClientRect();
 
         return (
-            rect.width > 3 &&
-            rect.height > 3
+            r.width > 2 &&
+            r.height > 2
         );
     }
 
-    function elements() {
+    function getElements() {
         return Array.from(
             document.querySelectorAll(
                 selectors.join(",")
@@ -156,11 +148,291 @@
         ).filter(valid);
     }
 
-    // =========================================================
-    // TEXT DAMAGE
-    // =========================================================
+    // ------------------------------------------------------------
+    // Stable DOM paths
+    // ------------------------------------------------------------
 
-    function damageText(el) {
+    function elementPath(el) {
+        const parts = [];
+
+        let current = el;
+
+        while (
+            current &&
+            current !== document.body &&
+            current.nodeType === 1
+        ) {
+            let index = 0;
+
+            let sibling =
+                current.previousElementSibling;
+
+            while (sibling) {
+                if (
+                    sibling.tagName ===
+                    current.tagName
+                ) {
+                    index++;
+                }
+
+                sibling =
+                    sibling.previousElementSibling;
+            }
+
+            parts.unshift(
+                current.tagName +
+                ":" +
+                index
+            );
+
+            current =
+                current.parentElement;
+        }
+
+        return parts.join("/");
+    }
+
+    function findElement(path) {
+        if (!path)
+            return null;
+
+        const parts =
+            path.split("/");
+
+        let current =
+            document.body;
+
+        for (
+            const part of parts
+        ) {
+            const i =
+                part.lastIndexOf(":");
+
+            if (i === -1)
+                return null;
+
+            const tag =
+                part.slice(0, i);
+
+            const index =
+                Number(
+                    part.slice(i + 1)
+                );
+
+            const children =
+                Array.from(
+                    current.children
+                ).filter(
+                    x =>
+                        x.tagName === tag
+                );
+
+            if (!children[index])
+                return null;
+
+            current =
+                children[index];
+        }
+
+        return current;
+    }
+
+    // ------------------------------------------------------------
+    // Text-node paths
+    // ------------------------------------------------------------
+
+    function textNodePath(node) {
+        const parent =
+            node.parentElement;
+
+        if (!parent)
+            return null;
+
+        const parentPath =
+            elementPath(parent);
+
+        let index = 0;
+
+        let sibling =
+            node.previousSibling;
+
+        while (sibling) {
+            if (
+                sibling.nodeType ===
+                Node.TEXT_NODE
+            ) {
+                index++;
+            }
+
+            sibling =
+                sibling.previousSibling;
+        }
+
+        return (
+            parentPath +
+            "|text:" +
+            index
+        );
+    }
+
+    function findTextNode(path) {
+        const separator =
+            path.lastIndexOf("|text:");
+
+        if (separator === -1)
+            return null;
+
+        const parentPath =
+            path.slice(
+                0,
+                separator
+            );
+
+        const index =
+            Number(
+                path.slice(
+                    separator + 6
+                )
+            );
+
+        const parent =
+            findElement(parentPath);
+
+        if (!parent)
+            return null;
+
+        let count = 0;
+
+        for (
+            const child
+            of parent.childNodes
+        ) {
+            if (
+                child.nodeType ===
+                Node.TEXT_NODE
+            ) {
+                if (
+                    count === index
+                ) {
+                    return child;
+                }
+
+                count++;
+            }
+        }
+
+        return null;
+    }
+
+    // ------------------------------------------------------------
+    // Persist text mutation
+    // ------------------------------------------------------------
+
+    function saveText(node) {
+        const path =
+            textNodePath(node);
+
+        if (!path)
+            return;
+
+        state.mutations[path] = {
+            type: "text",
+            value: node.nodeValue
+        };
+    }
+
+    // ------------------------------------------------------------
+    // Persist style mutation
+    // ------------------------------------------------------------
+
+    function saveStyle(el) {
+        const path =
+            elementPath(el);
+
+        if (!path)
+            return;
+
+        state.mutations[
+            "style|" + path
+        ] = {
+            type: "style",
+            value:
+                el.getAttribute("style") || ""
+        };
+    }
+
+    // ------------------------------------------------------------
+    // Restore all actual mutations
+    // ------------------------------------------------------------
+
+    function restore() {
+        let count = 0;
+
+        for (
+            const [
+                key,
+                mutation
+            ]
+            of Object.entries(
+                state.mutations
+            )
+        ) {
+
+            if (
+                mutation.type === "text"
+            ) {
+                const node =
+                    findTextNode(key);
+
+                if (!node)
+                    continue;
+
+                node.nodeValue =
+                    mutation.value;
+
+                count++;
+            }
+
+            else if (
+                mutation.type === "style"
+            ) {
+                const path =
+                    key.slice(6);
+
+                const el =
+                    findElement(path);
+
+                if (!el)
+                    continue;
+
+                if (
+                    mutation.value
+                ) {
+                    el.setAttribute(
+                        "style",
+                        mutation.value
+                    );
+                }
+                else {
+                    el.removeAttribute(
+                        "style"
+                    );
+                }
+
+                count++;
+            }
+        }
+
+        console.log(
+            `Restored ${count} persistent mutations.`
+        );
+    }
+
+    // ------------------------------------------------------------
+    // Corrupt text
+    // ------------------------------------------------------------
+
+    function corruptText(el) {
         const walker =
             document.createTreeWalker(
                 el,
@@ -169,29 +441,36 @@
 
         const nodes = [];
 
-        while (walker.nextNode()) {
+        while (
+            walker.nextNode()
+        ) {
+            const node =
+                walker.currentNode;
+
             if (
-                walker.currentNode.nodeValue &&
-                walker.currentNode.nodeValue.trim()
+                node.nodeValue &&
+                node.nodeValue.trim()
             ) {
-                nodes.push(
-                    walker.currentNode
-                );
+                nodes.push(node);
             }
         }
 
         if (!nodes.length)
             return;
 
-        const node = pick(nodes);
+        const node =
+            pick(nodes);
 
         const chars =
             node.nodeValue.split("");
 
-        // Corruption gets progressively more obvious.
         const probability =
-            0.01 +
-            state.intensity * 0.055;
+            Math.min(
+                0.6,
+                0.01 +
+                state.intensity *
+                0.01
+            );
 
         for (
             let i = 0;
@@ -199,7 +478,9 @@
             i++
         ) {
             if (
-                chars[i] === " "
+                chars[i] === " " ||
+                chars[i] === "\n" ||
+                chars[i] === "\t"
             ) {
                 continue;
             }
@@ -217,157 +498,147 @@
 
         node.nodeValue =
             chars.join("");
+
+        saveText(node);
     }
 
-    // =========================================================
-    // REAL LAYOUT DAMAGE
-    // =========================================================
+    // ------------------------------------------------------------
+    // RGB separation
+    // ------------------------------------------------------------
 
-    function damagePosition(el) {
-        const x =
-            random(
-                -1,
-                1
-            ) *
-            state.intensity *
-            7;
-
-        const y =
-            random(
-                -1,
-                1
-            ) *
-            state.intensity *
-            3;
-
-        const skew =
-            random(
-                -1,
-                1
-            ) *
-            state.intensity *
-            1.5;
-
-        el.style.transform =
-            `translate(${x}px,${y}px) skewX(${skew}deg)`;
-    }
-
-    // =========================================================
-    // RGB DISPLAY ERROR
-    // =========================================================
-
-    function damageColor(el) {
+    function rgb(el) {
         const amount =
-            random(
-                1,
+            Math.min(
+                40,
                 2 +
-                state.intensity * 5
+                state.intensity * 1.5
             );
 
         el.style.textShadow =
-            `${amount}px 0 rgba(255,0,0,.4),
-             ${-amount}px 0 rgba(0,120,255,.4)`;
+            `${amount}px 0 rgba(255,50,50,.65),
+             ${-amount}px 0 rgba(50,100,255,.65)`;
+
+        saveStyle(el);
     }
 
-    // =========================================================
-    // FLICKER
-    // =========================================================
+    // ------------------------------------------------------------
+    // Displacement
+    // ------------------------------------------------------------
 
-    function flicker(el) {
-        el.style.opacity =
-            random(
-                0.45,
-                1
+    function displacement(el) {
+        const amount =
+            Math.min(
+                30,
+                state.intensity
             );
 
-        if (
-            Math.random() <
-            state.intensity * 0.08
-        ) {
-            el.style.visibility =
-                "hidden";
+        el.style.transform =
+            `translate(
+                ${random(-amount, amount)}px,
+                ${random(-amount / 3, amount / 3)}px
+            )`;
 
-            setTimeout(() => {
-                if (el.isConnected) {
-                    el.style.visibility =
-                        "";
-                }
-            }, random(30, 150));
-        }
+        saveStyle(el);
     }
 
-    // =========================================================
-    // COLOR CORRUPTION
-    // =========================================================
+    // ------------------------------------------------------------
+    // Color corruption
+    // ------------------------------------------------------------
 
-    function colorDamage(el) {
+    function color(el) {
         el.style.color =
             pick([
                 "#ff1744",
-                "#00e5ff",
+                "#00d9ff",
                 "#ff00aa",
                 "#7cff00",
                 "#ffffff"
             ]);
+
+        saveStyle(el);
     }
 
-    // =========================================================
-    // BROKEN CLIPPING
-    // =========================================================
+    // ------------------------------------------------------------
+    // Clipping
+    // ------------------------------------------------------------
 
     function clipping(el) {
-        const top =
-            random(
-                0,
-                state.intensity * 15
-            );
-
-        const bottom =
-            random(
-                0,
-                state.intensity * 15
+        const amount =
+            Math.min(
+                30,
+                state.intensity
             );
 
         el.style.clipPath =
-            `inset(${top}% 0 ${bottom}% 0)`;
+            `inset(
+                ${random(0, amount)}%
+                0
+                ${random(0, amount)}%
+                0
+            )`;
+
+        saveStyle(el);
     }
 
-    // =========================================================
-    // IMAGE CORRUPTION
-    // =========================================================
+    // ------------------------------------------------------------
+    // Flicker
+    // ------------------------------------------------------------
 
-    function imageDamage(el) {
+    function flicker(el) {
+        el.style.opacity =
+            String(
+                random(0.3, 1)
+            );
+
+        saveStyle(el);
+
+        setTimeout(() => {
+            if (
+                el.isConnected
+            ) {
+                el.style.opacity = "";
+                saveStyle(el);
+            }
+        }, random(40, 180));
+    }
+
+    // ------------------------------------------------------------
+    // Image corruption
+    // ------------------------------------------------------------
+
+    function image(el) {
         if (
             el.tagName !== "IMG"
-        ) {
+        )
             return;
-        }
 
         el.style.filter =
             pick([
-                "contrast(2)",
-                "saturate(4)",
-                "hue-rotate(90deg)",
-                "brightness(1.7)",
-                "contrast(3) saturate(.3)",
-                "invert(.65)"
+                "contrast(1.8)",
+                "saturate(3)",
+                "hue-rotate(60deg)",
+                "hue-rotate(120deg)",
+                "brightness(1.5)",
+                "contrast(2.5) saturate(.4)",
+                "invert(.5)"
             ]);
+
+        saveStyle(el);
     }
 
-    // =========================================================
-    // DIGITAL TEARING
-    // =========================================================
+    // ------------------------------------------------------------
+    // Digital tearing
+    // ------------------------------------------------------------
 
     function tear(el) {
-        const rect =
+        const r =
             el.getBoundingClientRect();
 
         if (
-            rect.width <= 0 ||
-            rect.height <= 0
-        ) {
+            r.width <= 0 ||
+            r.height <= 0
+        )
             return;
-        }
 
         const clone =
             el.cloneNode(true);
@@ -375,7 +646,7 @@
         clone.removeAttribute("id");
 
         clone.setAttribute(
-            "data-corruption-artifact",
+            "data-glitch-artifact",
             ""
         );
 
@@ -383,37 +654,25 @@
             clone.style,
             {
                 position: "fixed",
-
                 left:
-                    `${rect.left +
-                    random(-20, 20)}px`,
-
+                    `${r.left + random(-25,25)}px`,
                 top:
-                    `${rect.top +
-                    random(-4, 4)}px`,
-
+                    `${r.top + random(-5,5)}px`,
                 width:
-                    `${rect.width}px`,
-
+                    `${r.width}px`,
                 height:
-                    `${rect.height}px`,
-
-                pointerEvents:
-                    "none",
-
+                    `${r.height}px`,
+                pointerEvents: "none",
                 opacity:
-                    random(
-                        0.03,
-                        0.13
-                    ),
-
-                filter:
-                    Math.random() < 0.5
-                        ? "hue-rotate(90deg)"
-                        : "hue-rotate(-90deg)",
-
+                    random(.03,.15),
                 zIndex:
-                    "2147483646"
+                    "2147483646",
+                filter:
+                    pick([
+                        "hue-rotate(90deg)",
+                        "hue-rotate(-90deg)",
+                        "contrast(2)"
+                    ])
             }
         );
 
@@ -421,123 +680,82 @@
             clone
         );
 
-        setTimeout(
-            () => {
-                if (clone.isConnected)
-                    clone.remove();
-            },
-            random(30, 130)
-        );
+        setTimeout(() => {
+            clone.remove();
+        }, random(30,150));
     }
 
-    // =========================================================
-    // BUTTON / INPUT DAMAGE
-    // =========================================================
-
-    function uiDamage(el) {
-        if (
-            el.tagName !== "BUTTON" &&
-            el.tagName !== "INPUT"
-        ) {
-            return;
-        }
-
-        if (
-            Math.random() < 0.5
-        ) {
-            el.style.borderColor =
-                "#ff1744";
-        }
-
-        if (
-            Math.random() < 0.3
-        ) {
-            el.style.background =
-                "#111";
-        }
-
-        if (
-            Math.random() < 0.2
-        ) {
-            el.style.cursor =
-                "not-allowed";
-        }
-    }
-
-    // =========================================================
-    // ONE CORRUPTION EVENT
-    // =========================================================
+    // ------------------------------------------------------------
+    // One corruption event
+    // ------------------------------------------------------------
 
     function corrupt(el) {
         if (!valid(el))
             return;
 
-        const roll =
+        const r =
             Math.random();
 
-        if (roll < 0.28) {
-            damageText(el);
-        }
-        else if (roll < 0.43) {
-            damagePosition(el);
-        }
-        else if (roll < 0.55) {
-            damageColor(el);
-        }
-        else if (roll < 0.67) {
+        if (r < .32)
+            corruptText(el);
+
+        else if (r < .48)
+            rgb(el);
+
+        else if (r < .59)
+            displacement(el);
+
+        else if (r < .68)
             flicker(el);
-        }
-        else if (roll < 0.76) {
+
+        else if (r < .77)
             clipping(el);
-        }
-        else if (roll < 0.84) {
-            colorDamage(el);
-        }
-        else if (roll < 0.92) {
+
+        else if (r < .84)
+            color(el);
+
+        else if (r < .92)
             tear(el);
-        }
+
         else if (
             el.tagName === "IMG"
-        ) {
-            imageDamage(el);
-        }
-        else {
-            uiDamage(el);
-        }
+        )
+            image(el);
     }
 
-    // =========================================================
-    // CONTINUOUS CORRUPTION
-    // =========================================================
+    // ------------------------------------------------------------
+    // Progressive corruption
+    // ------------------------------------------------------------
 
-    function tick() {
+    function wave() {
         const list =
-            elements();
+            getElements();
 
         if (!list.length)
             return;
 
         /*
-         * Intensity 0:
-         *   basically nothing
+         * No maximum.
          *
-         * Intensity 1:
-         *   occasional errors
-         *
-         * Intensity 2:
-         *   obvious degradation
-         *
-         * Intensity 3:
-         *   severe corruption
+         * Every wave gets stronger.
+         */
+        state.intensity += 0.025;
+
+        /*
+         * More and more elements get hit.
          */
         const amount =
-            Math.max(
-                1,
-                Math.floor(
-                    1 +
-                    state.intensity *
-                    state.intensity *
-                    3
+            Math.min(
+                list.length,
+                Math.max(
+                    1,
+                    Math.floor(
+                        1 +
+                        Math.pow(
+                            state.intensity,
+                            1.15
+                        )
+                    )
                 )
             );
 
@@ -550,49 +768,58 @@
                 pick(list)
             );
         }
+
+        save();
     }
 
-    // Start immediately.
-    tick();
+    // ------------------------------------------------------------
+    // Restore FIRST
+    // ------------------------------------------------------------
 
-    const interval =
+    restore();
+
+    // ------------------------------------------------------------
+    // Start corruption
+    // ------------------------------------------------------------
+
+    wave();
+
+    const timer =
         setInterval(
-            tick,
-            300
+            wave,
+            400
         );
 
-    // =========================================================
-    // Catch dynamically-created elements
-    // =========================================================
+    // ------------------------------------------------------------
+    // Watch dynamically generated DOM
+    // ------------------------------------------------------------
 
     const observer =
         new MutationObserver(
             mutations => {
-                if (
-                    state.intensity <
-                    0.4
-                ) {
-                    return;
-                }
 
                 for (
                     const mutation
                     of mutations
                 ) {
+
                     for (
                         const node
                         of mutation.addedNodes
                     ) {
+
                         if (
-                            node.nodeType !== 1
-                        ) {
+                            !valid(node)
+                        )
                             continue;
-                        }
 
                         if (
                             Math.random() <
-                            state.intensity *
-                            0.15
+                            Math.min(
+                                .5,
+                                state.intensity *
+                                .01
+                            )
                         ) {
                             corrupt(node);
                         }
@@ -609,97 +836,72 @@
         }
     );
 
-    // =========================================================
-    // Progressive degradation
-    // =========================================================
+    // ------------------------------------------------------------
+    // Save periodically
+    // ------------------------------------------------------------
 
-    let previous =
-        performance.now();
-
-    function progression(now) {
-        const delta =
-            Math.min(
-                now - previous,
-                100
-            );
-
-        previous = now;
-
-        state.intensity +=
-            delta / 180000;
-
-        state.intensity =
-            Math.min(
-                3,
-                state.intensity
-            );
-
-        requestAnimationFrame(
-            progression
-        );
-    }
-
-    requestAnimationFrame(
-        progression
+    setInterval(
+        save,
+        1000
     );
 
-    // Save every second.
-    const saver =
-        setInterval(
-            save,
-            1000
-        );
-
-    // =========================================================
-    // Controls
-    // =========================================================
+    // ------------------------------------------------------------
+    // Console controls
+    // ------------------------------------------------------------
 
     window.domGlitch = {
-        get intensity() {
+
+        intensity() {
             return state.intensity;
         },
 
-        setIntensity(value) {
-            state.intensity =
-                Math.max(
-                    0,
-                    Math.min(
-                        3,
-                        Number(value) || 0
-                    )
+        burst(amount = 50) {
+            const list =
+                getElements();
+
+            for (
+                let i = 0;
+                i < amount;
+                i++
+            ) {
+                if (!list.length)
+                    break;
+
+                corrupt(
+                    pick(list)
                 );
+            }
 
             save();
-
-            console.log(
-                "Corruption:",
-                state.intensity
-            );
         },
 
-        resetProgress() {
-            clearInterval(interval);
-            clearInterval(saver);
+        clear() {
+            delete db[pageKey];
 
-            localStorage.removeItem(
-                KEY
+            localStorage.setItem(
+                KEY,
+                JSON.stringify(db)
             );
 
             location.reload();
+        },
+
+        info() {
+            return {
+                page: pageKey,
+                intensity:
+                    state.intensity,
+                mutations:
+                    Object.keys(
+                        state.mutations
+                    ).length
+            };
         }
     };
 
     console.log(
-        "%cCORRUPTION ACTIVE",
+        "%cPERSISTENT GLITCH ACTIVE",
         "color:#ff1744;font-weight:bold;font-size:16px"
     );
 
-    console.log(
-        "Intensity:",
-        state.intensity.toFixed(2)
-    );
-
-    console.log(
-        "Test with: domGlitch.setIntensity(3)"
-    );
 })();
